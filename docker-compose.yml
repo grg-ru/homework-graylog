@@ -1,0 +1,154 @@
+networks:
+  cms:
+  graylog:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  wordpress_data:
+  mongodb_data:
+  mongodb_config:
+  graylog_datanode:
+  graylog_data:
+  sidecar_data:
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: graylog-mysql
+    restart: on-failure
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/mysql.cnf:/etc/mysql/conf.d/mysql.cnf:ro
+    networks:
+      - cms
+
+  wordpress:
+    image: wordpress:php8.2-fpm
+    container_name: graylog-php-fpm
+    restart: on-failure
+    environment:
+      WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./php-fpm/www.conf:/usr/local/etc/php-fpm.d/www.conf:ro
+    networks:
+      - cms
+    depends_on:
+      - db
+
+  nginx:
+    image: nginx:alpine
+    container_name: graylog-nginx
+    restart: on-failure
+    ports:
+      - "80:80"
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - cms
+    depends_on:
+      - wordpress
+
+  mongodb:
+    image: mongo:7.0
+    container_name: graylog-mongodb
+    restart: on-failure
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - graylog
+
+  datanode:
+    image: graylog/graylog-datanode:7.1
+    container_name: graylog-datanode
+    hostname: datanode
+    restart: on-failure
+    environment:
+      GRAYLOG_DATANODE_NODE_ID_FILE: /var/lib/graylog-datanode/node-id
+      GRAYLOG_DATANODE_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET}
+      GRAYLOG_DATANODE_MONGODB_URI: mongodb://mongodb:27017/graylog
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "127.0.0.1:8999:8999"
+      - "127.0.0.1:9200:9200"
+      - "127.0.0.1:9300:9300"
+    volumes:
+      - graylog_datanode:/var/lib/graylog-datanode
+    networks:
+      - graylog
+    depends_on:
+      - mongodb
+
+  graylog:
+    image: graylog/graylog:7.1
+    container_name: graylog-server
+    hostname: server
+    restart: on-failure
+    entrypoint: /usr/bin/tini -- /docker-entrypoint.sh
+    environment:
+      GRAYLOG_NODE_ID_FILE: /usr/share/graylog/data/data/node-id
+      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET}
+      GRAYLOG_ROOT_PASSWORD_SHA2: ${GRAYLOG_ROOT_PASSWORD_SHA2}
+      GRAYLOG_HTTP_BIND_ADDRESS: 0.0.0.0:9000
+      GRAYLOG_HTTP_EXTERNAL_URI: ${GRAYLOG_HTTP_EXTERNAL_URI}
+      GRAYLOG_MONGODB_URI: mongodb://mongodb:27017/graylog
+    ports:
+      - "9000:9000"
+      - "5044:5044"
+      - "5140:5140/tcp"
+      - "5140:5140/udp"
+      - "5555:5555/tcp"
+      - "5555:5555/udp"
+      - "12201:12201/tcp"
+      - "12201:12201/udp"
+      - "13301:13301"
+      - "13302:13302"
+    volumes:
+      - graylog_data:/usr/share/graylog/data
+    networks:
+      - graylog
+    depends_on:
+      mongodb:
+        condition: service_started
+      datanode:
+        condition: service_started
+
+  sidecar:
+    build:
+      context: ./sidecar
+    container_name: graylog-sidecar
+    restart: on-failure
+    privileged: true
+    environment:
+      GRAYLOG_SIDECAR_TOKEN: ${GRAYLOG_SIDECAR_TOKEN}
+    command: >
+      /bin/sh -c 'sed "s/__GRAYLOG_SIDECAR_TOKEN__/$${GRAYLOG_SIDECAR_TOKEN}/g" /etc/graylog/sidecar/sidecar.yml.template > /tmp/sidecar.yml && exec /usr/bin/graylog-sidecar -c /tmp/sidecar.yml'
+    volumes:
+      - ./sidecar/sidecar.yml:/etc/graylog/sidecar/sidecar.yml.template:ro
+      - sidecar_data:/var/lib/graylog-sidecar
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - graylog
+      - cms
+    depends_on:
+      - graylog

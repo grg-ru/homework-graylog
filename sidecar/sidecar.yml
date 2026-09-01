@@ -1,0 +1,17 @@
+server_url: "http://graylog:9000/api/"
+server_api_token: "__GRAYLOG_SIDECAR_TOKEN__"
+node_id: "graylog-lab-sidecar"
+node_name: "graylog-lab-sidecar"
+update_interval: 10
+send_status: true
+tls_skip_verify: true
+list_log_files:
+  - "/var/lib/docker/containers"
+cache_path: "/var/cache/graylog-sidecar"
+log_path: "/var/log/graylog-sidecar"
+log_rotate_max_file_size: "10MiB"
+log_rotate_keep_files: 10
+collector_binaries_accesslist:
+  - "/usr/lib/graylog-sidecar/filebeat"
+  - "/usr/bin/filebeat"
+  - "/usr/share/filebeat/bin/filebeat"

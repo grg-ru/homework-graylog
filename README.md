@@ -1,1 +1,1 @@
-# homework-graylog
+# ДЗ по Graylog

@@ -1,0 +1,45 @@
+filebeat.inputs:
+  - type: container
+    enabled: true
+    paths:
+      - /var/lib/docker/containers/*/*.log
+
+processors:
+  - add_docker_metadata:
+      host: unix:///var/run/docker.sock
+
+  - drop_event:
+      when:
+        not:
+          or:
+            - equals:
+                container.name: "graylog-nginx"
+            - equals:
+                container.name: "graylog-php-fpm"
+            - equals:
+                container.name: "graylog-mysql"
+
+  - add_fields:
+      target: ""
+      fields:
+        cms_stream: "nginx"
+      when.equals:
+        container.name: "graylog-nginx"
+
+  - add_fields:
+      target: ""
+      fields:
+        cms_stream: "php-fpm"
+      when.equals:
+        container.name: "graylog-php-fpm"
+
+  - add_fields:
+      target: ""
+      fields:
+        cms_stream: "mysql"
+      when.equals:
+        container.name: "graylog-mysql"
+
+output.logstash:
+  hosts:
+    - graylog:5044
